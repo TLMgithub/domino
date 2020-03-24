@@ -18,24 +18,27 @@ f_help () {
 This script clears up disk space on executors by deleting unnecessary files.
 
 OPTIONS:
-  -h, --help      View this help file.
-  -dr, --dry-run  Safely run script without changing anything.
+  -h, --help        View this help file.
+  -dr, --dry-run    Safely run script without changing anything.
+  -gr, --git-repos  Delete cached git repos.
 
 $MSG
-"
-exit
-}
+" ;exit ; }
 
 # error
 ########################################
-f_err () {
-  MSG="ERROR!: $1" ;f_help
-}
+f_err () { MSG="ERROR!: $1" ;f_help ; }
 
 # clear cached git repos:
 #   /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>
 ########################################
 f_git_repos () {
+
+# error check
+if [[ ! -d `find /domino/*/executor/replicatorStorage/ -mindepth 1 -maxdepth 1 -type d -name prepared |head -1` ]] ;then
+  f_err "Directory not found: /domino/*/executor/replicatorStorage/prepared/" ;fi
+echo hello
+exit
 
 # make list of all cached git repos
 find /domino/*/executor/replicatorStorage/prepared/ -mindepth 1 -maxdepth 1 -type d > $REPOLIST
@@ -67,8 +70,7 @@ done
 DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
 
 # output
-clear
-echo "
+clear ;echo "
 >> current running jobs:
 
 `docker ps`
@@ -85,7 +87,7 @@ echo "
 "
 
 # cleanup
-rm -f $TMPONE
+rm -f $TMPDIR
 }
 
 # script start
@@ -95,10 +97,10 @@ rm -f $TMPONE
 ########################################
 while (( "$#" > 0 )) ;do
   case $1 in
-    ''|'-h'|'--help')  f_help ;exit  ;;
+    '-h'|'--help')  f_help  ;;
     '-dr'|'--dry-run')  DRYRUN=true ;shift ;;
     '-gr'|'--git-repos')  GITREPO=true ;shift ;;
-    *)  f_err "Invalid arguments: $@"  ;;
+    *)  f_err "Invalid argument: $1"  ;;
   esac
 done
 
@@ -106,14 +108,14 @@ done
 ########################################
 
 # check if root
-if [[ $whoami != 'root' ]] ;then
-  echo "Error: This script needs to be executed as the 'root' user."
+if [[ `whoami` != 'root' ]] ;then
+  f_err "This script needs to be executed as the 'root' user."
 fi
 
 # execute
 ########################################
-exit
 
 if [[ $GITREPO == 'true' ]] ;then
   f_git_repos ;fi
 
+echo ;echo "...done" ;echo
