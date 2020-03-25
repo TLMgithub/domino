@@ -4,9 +4,9 @@
 ################################################################################
 TMPDIR=`mktemp -d`
 TMPONE=$TMPDIR/one.tmp
-REPOLIST=$TMPDIR/repo.txt
-JOBLIST=$TMPDIR/jobs.txt
-PRUNELIST=$TMPDIR/pruned_repo.txt
+ALLREPOSLIST=$TMPDIR/repo_directories.txt
+RUNNINGLIST=$TMPDIR/running_jobs.txt
+DELETELIST=$TMPDIR/delete_list.txt
 
 # functions
 ################################################################################
@@ -27,7 +27,13 @@ $MSG
 
 # error
 ########################################
-f_err () { MSG="ERROR!: $1" ;f_help ; }
+f_err () { MSG="!!! ERROR !!! $1" ;f_help ; }
+
+# dry run
+########################################
+f_dry () {
+  if [[ DRYRUN == 'true' ]] ;then echo "$1"
+  else eval "$1" ;fi ; }
 
 # clear cached git repos:
 #   /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>
@@ -35,71 +41,76 @@ f_err () { MSG="ERROR!: $1" ;f_help ; }
 f_git_repos () {
 
 # error check
-if [[ ! -d `find /domino/*/executor/replicatorStorage/ -mindepth 1 -maxdepth 1 -type d -name prepared |head -1` ]] ;then
-  f_err "Directory not found: /domino/*/executor/replicatorStorage/prepared/" ;fi
-echo hello
-exit
+#FINDPATH='/domino/*/executor/replicatorStorage'
+FINDPATH='/home/*/logrotate' ########################################
+#FINDDIR='prepared'
+FINDDIR='domino' ###############################
+if [[ ! -d `find $FINDPATH -mindepth 1 -maxdepth 1 -type d -name $FINDDIR |head -1` ]] ;then
+  f_err "Directory not found: $FINDPATH/$FINDDIR" ;fi
 
-# make list of all cached git repos
-find /domino/*/executor/replicatorStorage/prepared/ -mindepth 1 -maxdepth 1 -type d > $REPOLIST
+# make a list of all cached git repos
+find $FINDPATH/$FINDDIR -mindepth 1 -maxdepth 1 -type d > $ALLREPOSLIST
 
-# make list of all running jobs
-docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort > $JOBLIST
+# make a list of all running jobs
+docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort > $RUNNINGLIST
+echo test > $RUNNINGLIST ######################################
 
-# filter out running jobs from cached git repo list
-cp -f $REPOLIST $PRUNELIST
-for runid in `cat $JOBLIST` ;do
-  grep -v $runid $PRUNELIST > $TMPONE
-  cp -f $TMPONE $PRUNELIST
-done
+# make initial delete list from cached git repos
+cp -f $ALLREPOSLIST $DELETELIST
+
+# remove running jobs from the delete list
+for runid in `cat $RUNNINGLIST` ;do
+  grep -v $runid $DELETELIST > $TMPONE  # grep out runid
+  cp -f $TMPONE $DELETELIST ;done  # reset delete list
 
 # capture disk space: before
-DISKB=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
-
-# delete remaining, unused cached git repos
-for runid in `cat $PRUNELIST` ;do
-  if [[ `echo $runid |grep 'replicatorStorage'` ]] && [[ -d $runid ]] ;then
-    echo "Validated string and directory... proceeding to delete $runid"
-    rm -rf $runid
+#DISKB=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+DISKB=`df -h |grep -v 'docker' |column -t` ###########################
+echo texas ;exit ######################################
+# delete remaining, unused git repos
+for repo in `cat $DELETELIST` ;do
+  if [[ -d $repo ]] && [[ `echo $repo |grep 'replicatorStorage'` ]] ;then
+    echo "Validated string and directory... proceeding to delete $repo"
+    #f_dry "rm -rf $repo"
+    f_dry "ls -ald $repo"
   else
-    echo "Unvalidated string and/or a directory... skipping $runid"
+    echo "Unvalidated string and/or a directory... skipping $repo"
   fi
 done
 
 # capture disk space: after
-DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+#DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+DISKA=`df -h |grep -v 'docker' |column -t` ###########################
 
 # output
-clear ;echo "
->> current running jobs:
-
+echo "
+--- current running jobs:
 `docker ps`
 
->> leftover cached git repos:
+--- leftover cached git repos (tail'd):
+`find $FINDPATH/$FINDDIR -mindepth 1 -maxdepth 1 -type d |tail`
 
-`find /domino/*/executor/replicatorStorage/prepared/ -mindepth 1 -maxdepth 1 -type d |tail`
-
->> total repos:          `cat $REPOLIST |wc -l`
->> total running jobs:   `cat $JOBLIST |wc -l`
->> total repos removed:  `cat $PRUNELIST |wc -l`
->> disk before:          `echo $DISKB`
->> disk after:           `echo $DISKA`
+--- total repos:          `cat $ALLREPOSLIST |wc -l`
+--- total running jobs:   `cat $RUNNINGLIST |wc -l`
+--- total repos removed:  `cat $DELETELIST |wc -l`
+--- disk before:          `echo $DISKB`
+--- disk after:           `echo $DISKA`
 "
 
 # cleanup
-rm -f $TMPDIR
+#rm -f $TMPDIR ##################################
 }
 
 # script start
 ################################################################################
 
-# process options
+# process arguments
 ########################################
 while (( "$#" > 0 )) ;do
   case $1 in
     '-h'|'--help')  f_help  ;;
     '-dr'|'--dry-run')  DRYRUN=true ;shift ;;
-    '-gr'|'--git-repos')  GITREPO=true ;shift ;;
+    '-gr'|'--git-repos')  GITREPO=true ;EXEC=true ;shift ;;
     *)  f_err "Invalid argument: $1"  ;;
   esac
 done
@@ -108,14 +119,12 @@ done
 ########################################
 
 # check if root
-if [[ `whoami` != 'root' ]] ;then
-  f_err "This script needs to be executed as the 'root' user."
-fi
+#if [[ `whoami` != 'root' ]] ;then f_err "This script needs to be executed as the 'root' user." ;fi
 
 # execute
 ########################################
 
-if [[ $GITREPO == 'true' ]] ;then
-  f_git_repos ;fi
+if [[ $EXEC == 'true' ]] ;then
+  if [[ $GITREPO == 'true' ]] ;then f_git_repos ;fi
+else f_help ;fi
 
-echo ;echo "...done" ;echo
