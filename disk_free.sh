@@ -32,8 +32,8 @@ f_err () { MSG="!!! ERROR !!! $1" ;f_help ; }
 # dry run
 ########################################
 f_dry () {
-  if [[ DRYRUN == 'true' ]] ;then echo "$1"
-  else eval "$1" ;fi ; }
+  if [[ $DRYRUN == 'true' ]] ;then echo "Dry Run: $1"
+  else echo "Live Run: $1" ;eval "$1" ;fi ; }
 
 # clear cached git repos:
 #   /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>
@@ -41,10 +41,8 @@ f_dry () {
 f_git_repos () {
 
 # error check
-#FINDPATH='/domino/*/executor/replicatorStorage'
-FINDPATH='/home/*/logrotate' ########################################
-#FINDDIR='prepared'
-FINDDIR='domino' ###############################
+FINDPATH='/domino/*/executor/replicatorStorage'
+FINDDIR='prepared'
 if [[ ! -d `find $FINDPATH -mindepth 1 -maxdepth 1 -type d -name $FINDDIR |head -1` ]] ;then
   f_err "Directory not found: $FINDPATH/$FINDDIR" ;fi
 
@@ -53,7 +51,6 @@ find $FINDPATH/$FINDDIR -mindepth 1 -maxdepth 1 -type d > $ALLREPOSLIST
 
 # make a list of all running jobs
 docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort > $RUNNINGLIST
-echo test > $RUNNINGLIST ######################################
 
 # make initial delete list from cached git repos
 cp -f $ALLREPOSLIST $DELETELIST
@@ -64,23 +61,20 @@ for runid in `cat $RUNNINGLIST` ;do
   cp -f $TMPONE $DELETELIST ;done  # reset delete list
 
 # capture disk space: before
-#DISKB=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
-DISKB=`df -h |grep -v 'docker' |column -t` ###########################
-echo texas ;exit ######################################
+DISKB=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+
 # delete remaining, unused git repos
 for repo in `cat $DELETELIST` ;do
-  if [[ -d $repo ]] && [[ `echo $repo |grep 'replicatorStorage'` ]] ;then
-    echo "Validated string and directory... proceeding to delete $repo"
-    #f_dry "rm -rf $repo"
-    f_dry "ls -ald $repo"
+  if [[ -d $repo ]] && [[ `echo $repo |grep "$FINDDIR"` ]] ;then
+    echo "Validated string and directory... deleting file: $repo"
+    f_dry "rm -rf $repo"
   else
-    echo "Unvalidated string and/or a directory... skipping $repo"
+    echo "Unvalidated string and/or a directory... skipping file: $repo"
   fi
 done
 
 # capture disk space: after
-#DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
-DISKA=`df -h |grep -v 'docker' |column -t` ###########################
+DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
 
 # output
 echo "
@@ -98,7 +92,7 @@ echo "
 "
 
 # cleanup
-#rm -f $TMPDIR ##################################
+rm -rf $TMPDIR
 }
 
 # script start
@@ -119,7 +113,7 @@ done
 ########################################
 
 # check if root
-#if [[ `whoami` != 'root' ]] ;then f_err "This script needs to be executed as the 'root' user." ;fi
+if [[ `whoami` != 'root' ]] ;then f_err "This script needs to be executed as the 'root' user." ;fi
 
 # execute
 ########################################
