@@ -92,7 +92,7 @@ echo "
 "
 
 # cleanup
-rm -rf $TMPDIR
+if [[ -d $TMPDIR ]] && [[ `ls -ald $TMPDIR |grep tmp` ]] ;then rm -rf $TMPDIR ;fi
 }
 
 # script start
