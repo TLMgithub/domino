@@ -2,28 +2,23 @@
 
 # variables
 ################################################################################
-TMPDIR=`mktemp -d`
-TMPONE=$TMPDIR/one.tmp
-ALLREPOSLIST=$TMPDIR/repo_directories.txt
-RUNNINGLIST=$TMPDIR/running_jobs.txt
-DELETELIST=$TMPDIR/delete_list.txt
+HELPTXT="
+This script clears up disk space on executors by deleting unnecessary files.
 
-# functions
+OPTIONS:
+  -h, --help           View this help file.
+  -dr, --dry-run       Safely run script without changing anything.
+  -cr, --cached-repos
+    Delete cached git repos:
+      /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>/
+"
+
+# library
 ################################################################################
 
 # help
 ########################################
-f_help () {
-  echo "
-This script clears up disk space on executors by deleting unnecessary files.
-
-OPTIONS:
-  -h, --help        View this help file.
-  -dr, --dry-run    Safely run script without changing anything.
-  -gr, --git-repos  Delete cached git repos.
-
-$MSG
-" ;exit ; }
+f_help () { echo "$HELPTXT" ;echo "$MSG" ;echo ;exit ; }
 
 # error
 ########################################
@@ -35,64 +30,84 @@ f_dry () {
   if [[ $DRYRUN == 'true' ]] ;then echo "Dry Run: $1"
   else echo "Live Run: $1" ;eval "$1" ;fi ; }
 
-# clear cached git repos:
-#   /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>
+# error check: root exec
 ########################################
-f_git_repos () {
+f_root () {
+if [[ `whoami` != 'root' ]] ;then
+  f_err "This script needs to be executed as the 'root' user." ;fi ; }
 
-# error check
-FINDPATH='/domino/*/executor/replicatorStorage'
-FINDDIR='prepared'
-if [[ ! -d `find $FINDPATH -mindepth 1 -maxdepth 1 -type d -name $FINDDIR |head -1` ]] ;then
-  f_err "Directory not found: $FINDPATH/$FINDDIR" ;fi
+# functions
+################################################################################
 
-# make a list of all cached git repos
-find $FINDPATH/$FINDDIR -mindepth 1 -maxdepth 1 -type d > $ALLREPOSLIST
+# prune "delete" list
+f_prune () {
+for string in `echo "$PRUNELIST"` ;do  # iterate through list
+  TMPONE="`echo \"$DELETELIST\" |grep -v $string`"  # grep out string
+  DELETELIST="$TMPONE" ;done ; } # reset delete list
 
-# make a list of all running jobs
-docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort > $RUNNINGLIST
+# delete files
+########################################
+f_delete_files () {
 
-# make initial delete list from cached git repos
-cp -f $ALLREPOSLIST $DELETELIST
+# error check: path exists
+FULLPATH="`find $FINDPATH -mindepth 1 -maxdepth 1 -type d -name $FINDDIR`"
+if [[ ! -d $FULLPATH ]] ;then
+  f_err "Directory not found: $FULLPATH" ;fi
 
-# remove running jobs from the delete list
-for runid in `cat $RUNNINGLIST` ;do
-  grep -v $runid $DELETELIST > $TMPONE  # grep out runid
-  cp -f $TMPONE $DELETELIST ;done  # reset delete list
+# error check: single directory
+DIRCOUNT=`echo "$FULLPATH" |wc -l`
+if [[ $DIRCOUNT > 1 ]] ;then
+  f_err "Too many Directories: $DIRCOUNT" ;fi
 
-# capture disk space: before
-DISKB=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+# make list: all files to be deleted
+ALLFILESLIST="`find $FULLPATH -mindepth 1 -maxdepth 1 -type d`"
 
-# delete remaining, unused git repos
-for repo in `cat $DELETELIST` ;do
-  if [[ -d $repo ]] && [[ `echo $repo |grep "$FINDDIR"` ]] ;then
-    echo "Validated string and directory... deleting file: $repo"
-    f_dry "rm -rf $repo"
+# make list: initial delete list from "all files" list
+DELETELIST="$ALLFILESLIST"
+
+# make list: all run IDs for current jobs
+RUNIDSLIST="`docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort`"
+
+# exempt current run IDs
+PRUNELIST="$RUNIDSLIST" ;f_prune
+
+# prune "delete" list: remove any special file exceptions
+PRUNELIST="$EXCEPTLIST" ;f_prune
+
+# capture disk space: before deletion
+DISKB="`df -h |grep ^/dev |column -t`"
+
+# delete files using the pruned "delete" list
+for file in `echo "$DELETELIST"` ;do
+  if [[ -d $file ]] && [[ `echo $file |grep "$FINDDIR"` ]] ;then
+    echo "Validated file type and string... deleting file: $file"
+    f_dry "rm -rf $file"
   else
-    echo "Unvalidated string and/or a directory... skipping file: $repo"
+    echo "Unvalidated file type and/or string... skipping file: $file"
   fi
 done
 
-# capture disk space: after
-DISKA=`df -h |grep 'domino' |grep -v 'domino/' |column -t`
+# capture disk space: after deletion
+DISKA="`df -h |grep ^/dev |column -t`"
 
 # output
 echo "
 --- current running jobs:
 `docker ps`
 
---- leftover cached git repos (tail'd):
-`find $FINDPATH/$FINDDIR -mindepth 1 -maxdepth 1 -type d |tail`
+--- remaining files (tail'd):
+`find $FULLPATH -mindepth 1 -maxdepth 1 -type d |tail`
 
---- total repos:          `cat $ALLREPOSLIST |wc -l`
---- total running jobs:   `cat $RUNNINGLIST |wc -l`
---- total repos removed:  `cat $DELETELIST |wc -l`
---- disk before:          `echo $DISKB`
---- disk after:           `echo $DISKA`
+--- disk before:
+$DISKB
+
+--- disk after:
+$DISKA
+
+--- file total:     `echo "$ALLFILESLIST" |wc -l`
+--- running jobs:   `echo "$RUNIDSLIST" |wc -l`
+--- files removed:  `echo "$DELETELIST" |wc -l`
 "
-
-# cleanup
-if [[ -d $TMPDIR ]] && [[ `ls -ald $TMPDIR |grep tmp` ]] ;then rm -rf $TMPDIR ;fi
 }
 
 # script start
@@ -100,11 +115,12 @@ if [[ -d $TMPDIR ]] && [[ `ls -ald $TMPDIR |grep tmp` ]] ;then rm -rf $TMPDIR ;f
 
 # process arguments
 ########################################
+EXEC=false
 while (( "$#" > 0 )) ;do
   case $1 in
     '-h'|'--help')  f_help  ;;
-    '-dr'|'--dry-run')  DRYRUN=true ;shift ;;
-    '-gr'|'--git-repos')  GITREPO=true ;EXEC=true ;shift ;;
+    '-dr'|'--dry-run')  DRYRUN='true' ;shift ;;
+    '-cr'|'--cached-repos')  CACHEDREPO='true' ;EXEC='true' ;shift ;;
     *)  f_err "Invalid argument: $1"  ;;
   esac
 done
@@ -113,12 +129,20 @@ done
 ########################################
 
 # check if root
-if [[ `whoami` != 'root' ]] ;then f_err "This script needs to be executed as the 'root' user." ;fi
+f_root
 
-# execute
+# check docker
+if [[ ! `which docker` ]] ;then f_err "Command not found: docker" ;fi
+
+# process flags
 ########################################
 
 if [[ $EXEC == 'true' ]] ;then
-  if [[ $GITREPO == 'true' ]] ;then f_git_repos ;fi
+  EXCEPTLIST=''
+  if [[ $CACHEDREPO == 'true' ]] ;then
+    FINDPATH='/domino/*/executor/replicatorStorage'
+    FINDDIR='prepared'
+    EXCEPTLIST=""
+    f_delete_files ;fi
 else f_help ;fi
 
