@@ -11,6 +11,7 @@ OPTIONS:
   -cr, --cached-repos
     Delete cached git repos:
       /domino/<Executor>/executor/replicatorStorage/prepared/<RunID>/
+
 "
 
 # library
@@ -42,37 +43,45 @@ if [[ `whoami` != 'root' ]] ;then
 # prune "delete" list
 f_prune () {
 for string in `echo "$PRUNELIST"` ;do  # iterate through list
-  TMPONE="`echo \"$DELETELIST\" |grep -v $string`"  # grep out string
+  TMPONE="`echo \"$DELETELIST\" |grep -v \"$string\"`"  # grep out string
   DELETELIST="$TMPONE" ;done ; } # reset delete list
 
 # delete files
 ########################################
 f_delete_files () {
 
-# error check: path exists
+### error checks
+
+# path exists
 FULLPATH="`find $FINDPATH -mindepth 1 -maxdepth 1 -type d -name $FINDDIR`"
 if [[ ! -d $FULLPATH ]] ;then
   f_err "Directory not found: $FULLPATH" ;fi
 
-# error check: single directory
+# single directory
 DIRCOUNT=`echo "$FULLPATH" |wc -l`
 if [[ $DIRCOUNT > 1 ]] ;then
   f_err "Too many Directories: $DIRCOUNT" ;fi
 
-# make list: all files to be deleted
+### make lists
+
+# all files to be deleted
 ALLFILESLIST="`find $FULLPATH -mindepth 1 -maxdepth 1 -type d`"
 
-# make list: initial delete list from "all files" list
+# initial delete list from "all files" list
 DELETELIST="$ALLFILESLIST"
 
-# make list: all run IDs for current jobs
+# all run IDs for current jobs
 RUNIDSLIST="`docker ps |awk -F'domino-run-' '{print $2}' |column -t |sort`"
+
+### prune "delete" list
 
 # exempt current run IDs
 PRUNELIST="$RUNIDSLIST" ;f_prune
 
-# prune "delete" list: remove any special file exceptions
+# remove any special file exceptions
 PRUNELIST="$EXCEPTLIST" ;f_prune
+
+### delete files
 
 # capture disk space: before deletion
 DISKB="`df -h |grep ^/dev |column -t`"
@@ -90,7 +99,8 @@ done
 # capture disk space: after deletion
 DISKA="`df -h |grep ^/dev |column -t`"
 
-# output
+### output
+
 echo "
 --- current running jobs:
 `docker ps`
