@@ -2,6 +2,14 @@
 
 # variables
 ################################################################################
+DISRAW='/tmp/dispatcher.txt'  # dispatcher raw data/input
+DISOUT=`mktemp`  # output from this script
+TMPONE=`mktemp`
+TMPTWO=`mktemp`
+TMPTHREE=`mktemp`
+
+# help text
+########################################
 HELPTXT="
 This script parses data from raw dispatcher ouput, which should be here:
 $DISRAW
@@ -13,11 +21,6 @@ OPTIONS:
   -c, --cpu       find current runs by cpu usage
   -m, --mem       find current runs by memory usage
 "
-DISRAW='/tmp/dispatcher.txt'  # dispatcher raw data/input
-DISOUT=`mktemp`  # output from this script
-TMPONE=`mktemp`
-TMPTWO=`mktemp`
-TMPTHREE=`mktemp`
 
 # library
 ################################################################################
