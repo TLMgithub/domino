@@ -72,6 +72,7 @@ if [[ `whoami` != 'root' ]] ;then
 # precheck
 ########################################
 f_precheck () {
+echo "Executing Pre-check..."
 if [[ ! -f $DISRAW ]] ;then
   echo "error: $DISRAW does not exist" ;exit
 elif [[ -z $DISRAW ]] ;then
@@ -84,6 +85,7 @@ fi
 f_reformat () {
 
   # cut off top section
+  echo "Removing unnecessary sections..."
   CATN=`cat -n $DISRAW |grep 'Currently Executing Runs' |head -n1 |awk '{print $1}'`
   tail -n +$CATN $DISRAW |tail -n +2 > $TMPONE
 
@@ -92,9 +94,11 @@ f_reformat () {
   head -n$CATN $TMPONE |head -n -1 > $DISOUT
 
   # extract relevant fields (1/3): generic
+  echo "Extracting generic fields (1/3)..."
   cat $DISOUT |awk '{print $3, $2, $6, $5, $1}' > $TMPONE
   
   # extract relevant fields (2/3): date
+  echo "Extracting date fields (2/3)..."
   if [[ $DATE == 'true' ]] ;then
     cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $NF, $(NF-2), $(NF-1)}' > $TMPTWO
     sed -i 's/,//g' $TMPTWO
@@ -116,21 +120,25 @@ f_reformat () {
   fi
 
   # extract relevant fields (3/3): time and resource usage
+  echo "Extracting time and resource usage fields (3/3)..."
   cat $DISOUT |awk -F'@' '{print $2}' |awk '{print $1, $2, $3, $4, $5, $6, $7}' |sed 's/m -- --/m - - - -/g' |awk '{print $1, $2, $3, $4" cpu "$5, $6" mem "$7}' > $TMPTHREE
 
   # consolidate fields
   cat /dev/null > $DISOUT
-  for CNT in `cat -n $TMPONE |awk '{print $1}'` ;do
-    echo "`sed -n $CNT\p $TMPONE` `sed -n $CNT\p $TMPTWO` `sed -n $CNT\p $TMPTHREE`" >> $DISOUT
+  COUNT='1'
+  MAXCOUNT=`cat $TMPONE |wc -l`
+  for line in `cat -n $TMPONE |awk '{print $1}'` ;do
+    echo "Consolidating field $COUNT/$MAXCOUNT..."
+    echo "`sed -n $line\p $TMPONE` `sed -n $line\p $TMPTWO` `sed -n $line\p $TMPTHREE`" >> $DISOUT
+    COUNT=$((COUNT+1))
   done
 
   # process `sed` values for reporting
-  echo before ;grep -i tony $DISOUT
   if [[ $REP = 'true' ]] ;then
+    echo "Processing \`sed\` values for reporting..."
     for line in `echo "$SEDVALS"` ;do
+      echo "Processing: $line..."
       sed -i "$line" $DISOUT ;done ;fi
-  echo after ;grep -i tony $DISOUT
-  exit
 }
 
 # sort by column number
