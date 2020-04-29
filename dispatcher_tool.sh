@@ -2,17 +2,33 @@
 
 # variables
 ################################################################################
+REFERENCE='/tmp/dispatcher.ref'  # reference file for this script
 DISRAW='/tmp/dispatcher.txt'  # dispatcher raw data/input
+REPFILE="./domino_capacity_report.`date +%F`.txt"
 DISOUT=`mktemp`  # output from this script
 TMPONE=`mktemp`
 TMPTWO=`mktemp`
 TMPTHREE=`mktemp`
+TMPFOUR=`mktemp`
 
 # help text
 ########################################
 HELPTXT="
-This script parses data from raw dispatcher ouput, which should be here:
-$DISRAW
+This script parses data from raw dispatcher ouput.
+
+SOURCED FILES:
+  Dispatcher file: $DISRAW
+  Copy and paste dispatcher plain text into this file.
+  
+  Reference file: $REFERENCE
+  Create a variable called \"SEDVALS\".
+    This is for reporting only.
+    This variable should contain any \`sed\` commands you'd like to run against
+      the raw output: $REPFILE
+    Format Example:
+      SEDVALS='s/<ValueBefore1>/<ValueAfter1>/g
+      s/<ValueBefore>/<ValueAfter>/g
+      ...'
 
 OPTIONS:
   -h, --help      display this help text
@@ -23,6 +39,8 @@ OPTIONS:
   -m, --mem       find current runs by memory usage
   -u, --user      find current runs by user
   -p, --project   find current runs by project name
+  -d, --date      find current runs by start date
+  -r, --report    create report file for userbase
 "
 
 # library
@@ -73,23 +91,68 @@ f_reformat () {
   CATN=`cat -n $TMPONE |grep 'Run Queue' |head -n1 |awk '{print $1}'`
   head -n$CATN $TMPONE |head -n -1 > $DISOUT
 
-  # reformat output
+  # extract relevant fields (1/3): generic
   cat $DISOUT |awk '{print $3, $2, $6, $5, $1}' > $TMPONE
-  cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $(NF-2), $(NF-1), $NF}' > $TMPTWO
-  cat $DISOUT |awk -F'@' '{print $2}' |awk '{print $1, $2, $3, $4, $5, $6, $7}' > $TMPTHREE
+  
+  # extract relevant fields (2/3): date
+  if [[ $DATE == 'true' ]] ;then
+    cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $NF, $(NF-2), $(NF-1)}' > $TMPTWO
+    sed -i 's/,//g' $TMPTWO
+    sed -i 's/ /-/g' $TMPTWO
+    sed -i 's/Jan/01/g' $TMPTWO
+    sed -i 's/Feb/02/g' $TMPTWO
+    sed -i 's/Mar/03/g' $TMPTWO
+    sed -i 's/Apr/04/g' $TMPTWO
+    sed -i 's/May/05/g' $TMPTWO
+    sed -i 's/Jun/06/g' $TMPTWO
+    sed -i 's/Jul/07/g' $TMPTWO
+    sed -i 's/Aug/08/g' $TMPTWO
+    sed -i 's/Sep/09/g' $TMPTWO
+    sed -i 's/Oct/10/g' $TMPTWO
+    sed -i 's/Nov/11/g' $TMPTWO
+    sed -i 's/Dec/12/g' $TMPTWO
+  else
+    cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $(NF-2), $(NF-1), $NF}' > $TMPTWO
+  fi
+
+  # extract relevant fields (3/3): time and resource usage
+  cat $DISOUT |awk -F'@' '{print $2}' |awk '{print $1, $2, $3, $4, $5, $6, $7}' |sed 's/m -- --/m - - - -/g' |awk '{print $1, $2, $3, $4" cpu "$5, $6" mem "$7}' > $TMPTHREE
+
+  # consolidate fields
   cat /dev/null > $DISOUT
   for CNT in `cat -n $TMPONE |awk '{print $1}'` ;do
     echo "`sed -n $CNT\p $TMPONE` `sed -n $CNT\p $TMPTWO` `sed -n $CNT\p $TMPTHREE`" >> $DISOUT
   done
+
+  # process `sed` values for reporting
+  echo before ;grep -i tony $DISOUT
+  if [[ $REP = 'true' ]] ;then
+    for line in `echo "$SEDVALS"` ;do
+      sed -i "$line" $DISOUT ;done ;fi
+  echo after ;grep -i tony $DISOUT
+  exit
 }
 
 # sort by column number
 ########################################
-f_sort_column () {
+f_sort () {
   f_precheck ;f_reformat
   awk -v columnone=$1 -v columntwo=$2 -v columnthree=$3 '{print $columnone, $columntwo, $columnthree, $0}' $DISOUT |sort -n > $TMPONE
   awk '{$1=$2=$3="" ;print $0}' $TMPONE |cat -n |column -t > $DISOUT
-  less $DISOUT
+}
+
+# extra report processing
+########################################
+f_report () {
+
+# check reference file
+if [[ ! -f $REFERENCE ]] ;then f_err "File does not exist: $REFERENCE" ;fi
+
+# remove unnecessary content
+awk '{$3=$6="" ;print $0}' $DISOUT > $TMPONE
+
+# remove production runIDs
+cat $TMPONE |column -t > $DISOUT
 }
 
 # script start
@@ -108,6 +171,8 @@ while (( "$#" > 0 )) ;do
     '-m'|'--mem')  MEM='true' ;shift ;;
     '-u'|'--user')  USER='true' ;shift ;;
     '-p'|'--project')  PROJ='true' ;shift ;;
+    '-d'|'--date')  DATE='true' ;shift ;;
+    '-r'|'--report')  REP='true' ;shift ;;
     *)  f_err "Invalid argument: $1"  ;;
   esac
 done
@@ -120,19 +185,24 @@ if [[ ! -f $DISRAW ]] ;then f_err "File does not exist: $DISRAW" ;fi
 
 # process flags
 ########################################
+source $REFERENCE
 
 if [[ $TIER == 'true' ]] ;then
-  f_sort_column 1 2 3
+  f_sort 1 2 3 ;less $DISOUT
 elif [[ $EXEC == 'true' ]] ;then
-  f_sort_column 2 1 3
+  f_sort 2 1 3 ;less $DISOUT
 elif [[ $CPU == 'true' ]] ;then
-  f_sort_column 11 13 3
+  f_sort 11 13 3 ;less $DISOUT
 elif [[ $MEM == 'true' ]] ;then
-  f_sort_column 13 11 3
+  f_sort 13 11 3 ;less $DISOUT
 elif [[ $USER == 'true' ]] ;then
-  f_sort_column 3 4 2
+  f_sort 3 4 2 ;less $DISOUT
 elif [[ $PROJ == 'true' ]] ;then
-  f_sort_column 4 3 2
+  f_sort 4 3 2 ;less $DISOUT
+elif [[ $DATE == 'true' ]] ;then
+  f_sort 6 7 8 ;less $DISOUT
+elif [[ $REP == 'true' ]] ;then
+  f_sort 1 3 4 ;f_report ;less $DISOUT
 fi
 
 # filter options
