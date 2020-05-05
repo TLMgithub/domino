@@ -2,7 +2,7 @@
 
 # variables
 ################################################################################
-REFERENCE='/tmp/dispatcher.ref'  # reference file for this script
+SEDFILE='/tmp/dispatcher.sed'  # sed lines for reporting
 DISRAW='/tmp/dispatcher.txt'  # dispatcher raw data/input
 REPFILE="./domino_capacity_report.`date +%F`.txt"
 DISOUT=`mktemp`  # output from this script
@@ -20,27 +20,26 @@ SOURCED FILES:
   Dispatcher file: $DISRAW
   Copy and paste dispatcher plain text into this file.
   
-  Reference file: $REFERENCE
-  Create a variable called \"SEDVALS\".
-    This is for reporting only.
-    This variable should contain any \`sed\` commands you'd like to run against
-      the raw output: $REPFILE
-    Format Example:
-      SEDVALS='s/<ValueBefore1>/<ValueAfter1>/g
-      s/<ValueBefore>/<ValueAfter>/g
-      ...'
+  \`sed\` file: $SEDFILE
+  This is for reporting only.
+  Should contain any \`sed\` commands you'd like to run against the
+    report output: $REPFILE
+  Format Example:
+    <ValueToOmit>/d
+    s/<ValueBefore>/<ValueAfter>/g
+    ...
 
 OPTIONS:
-  -h, --help      display this help text
-  -k, --keep      don't delete output file
-  -t, --tier      find current runs by tier
-  -e, --executor  find current runs by executor
-  -c, --cpu       find current runs by cpu usage
-  -m, --mem       find current runs by memory usage
-  -u, --user      find current runs by user
-  -p, --project   find current runs by project name
-  -d, --date      find current runs by start date
-  -r, --report    create report file for userbase
+  -h, --help           display this help text
+  -k, --keep           don't delete output file
+  -t, --tier           sort runs by tier
+  -e, --executor       sort runs by executor
+  -c, --cpu            sort runs by cpu usage
+  -m, --mem            sort runs by memory usage
+  -u, --user           sort runs by user
+  -p, --project        sort runs by project name
+  -d, --date           sort runs by start date (converts date format: `date +%F`)
+  -r, --report         create report file (converts date format: `date +%F`)
 "
 
 # library
@@ -69,20 +68,9 @@ if [[ `whoami` != 'root' ]] ;then
 # functions
 ################################################################################
 
-# precheck
+# reformat and sort
 ########################################
-f_precheck () {
-echo "Executing Pre-check..."
-if [[ ! -f $DISRAW ]] ;then
-  echo "error: $DISRAW does not exist" ;exit
-elif [[ -z $DISRAW ]] ;then
-  echo "error: $DISRAW is empty" ;exit
-fi
-}
-
-# cut out "Currently Executing Runs" section
-########################################
-f_reformat () {
+f_sort () {
 
   # cut off top section
   echo "Removing unnecessary sections..."
@@ -93,35 +81,35 @@ f_reformat () {
   CATN=`cat -n $TMPONE |grep 'Run Queue' |head -n1 |awk '{print $1}'`
   head -n$CATN $TMPONE |head -n -1 > $DISOUT
 
-  # extract relevant fields (1/3): generic
-  echo "Extracting generic fields (1/3)..."
-  cat $DISOUT |awk '{print $3, $2, $6, $5, $1}' > $TMPONE
-  
-  # extract relevant fields (2/3): date
-  echo "Extracting date fields (2/3)..."
-  if [[ $DATE == 'true' ]] ;then
-    cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $NF, $(NF-2), $(NF-1)}' > $TMPTWO
-    sed -i 's/,//g' $TMPTWO
-    sed -i 's/ /-/g' $TMPTWO
-    sed -i 's/Jan/01/g' $TMPTWO
-    sed -i 's/Feb/02/g' $TMPTWO
-    sed -i 's/Mar/03/g' $TMPTWO
-    sed -i 's/Apr/04/g' $TMPTWO
-    sed -i 's/May/05/g' $TMPTWO
-    sed -i 's/Jun/06/g' $TMPTWO
-    sed -i 's/Jul/07/g' $TMPTWO
-    sed -i 's/Aug/08/g' $TMPTWO
-    sed -i 's/Sep/09/g' $TMPTWO
-    sed -i 's/Oct/10/g' $TMPTWO
-    sed -i 's/Nov/11/g' $TMPTWO
-    sed -i 's/Dec/12/g' $TMPTWO
-  else
-    cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $(NF-2), $(NF-1), $NF}' > $TMPTWO
-  fi
+  # extract relevant fields: generic
+  echo "Extracting generic fields (1/4)..."
+  cat $DISOUT |awk '{print $3, $2, $6, $5}' > $TMPONE
 
-  # extract relevant fields (3/3): time and resource usage
-  echo "Extracting time and resource usage fields (3/3)..."
-  cat $DISOUT |awk -F'@' '{print $2}' |awk '{print $1, $2, $3, $4, $5, $6, $7}' |sed 's/m -- --/m - - - -/g' |awk '{print $1, $2, $3, $4" cpu "$5, $6" mem "$7}' > $TMPTHREE
+  # extract relevant fields: date
+  echo "Extracting date fields (2/4)..."
+  cat $DISOUT |awk -F'@' '{print $1}' |awk '{print $NF, $(NF-2), $(NF-1)}' > $TMPTWO
+  sed -i 's/,//g' $TMPTWO
+  sed -i 's/ /-/g' $TMPTWO
+  sed -i 's/Jan/01/g' $TMPTWO
+  sed -i 's/Feb/02/g' $TMPTWO
+  sed -i 's/Mar/03/g' $TMPTWO
+  sed -i 's/Apr/04/g' $TMPTWO
+  sed -i 's/May/05/g' $TMPTWO
+  sed -i 's/Jun/06/g' $TMPTWO
+  sed -i 's/Jul/07/g' $TMPTWO
+  sed -i 's/Aug/08/g' $TMPTWO
+  sed -i 's/Sep/09/g' $TMPTWO
+  sed -i 's/Oct/10/g' $TMPTWO
+  sed -i 's/Nov/11/g' $TMPTWO
+  sed -i 's/Dec/12/g' $TMPTWO
+
+  # extract relevant fields: time and resource usage
+  echo "Extracting time and resource usage fields (3/4)..."
+  cat $DISOUT |awk -F'@' '{print $2}' |awk '{print $1, $2, $3, $4, $5, $6, $7}' |sed 's/m -- --/m - - - -/g' |awk '{print $1$2, $3$4, $5$6, $7}' > $TMPTHREE
+
+  # extract relevant fields: Run ID
+  echo "Extracting RunIDs (4/4)..."
+  cat $DISOUT |awk '{print $1}' > $TMPFOUR
 
   # consolidate fields
   cat /dev/null > $DISOUT
@@ -129,38 +117,48 @@ f_reformat () {
   MAXCOUNT=`cat $TMPONE |wc -l`
   for line in `cat -n $TMPONE |awk '{print $1}'` ;do
     echo "Consolidating field $COUNT/$MAXCOUNT..."
-    echo "`sed -n $line\p $TMPONE` `sed -n $line\p $TMPTWO` `sed -n $line\p $TMPTHREE`" >> $DISOUT
+    echo "`sed -n $line\p $TMPONE` `sed -n $line\p $TMPTWO` `sed -n $line\p $TMPTHREE` `sed -n $line\p $TMPFOUR`" >> $DISOUT
     COUNT=$((COUNT+1))
   done
 
-  # process `sed` values for reporting
+  # process `sed` values
+  echo "Processing \`sed\` values..."
+  for line in `cat $SEDFILE` ;do
+    echo "Processing: $line..."
+    sed -i "$line" $DISOUT ;done
+
+  # insert header label
+  echo "HARDWARE EXECUTOR USER PROJECT DATE TIME CPU MEM STATE RUN_ID" >> $DISOUT
+
+  # add sort columns
+  awk -v columnone=$1 -v columntwo=$2 -v columnthree=$3 '{print $columnone, $columntwo, $columnthree, $0}' $DISOUT > $TMPTWO
+
+  # sort
+  #sort -n $TMPTWO |awk '{$1=$2=$3="" ;print $0}' |column -t > $TMPONE
+  vim -c ':sort' -c ':wq' $TMPTWO ;awk '{$1=$2=$3="" ;print $0}' $TMPTWO |column -t > $TMPONE
+
+  # move header label and add numbering
+  echo "0 `grep ^HARDWARE $TMPONE`" > $TMPTHREE
+  grep -v ^HARDWARE $TMPONE > $TMPTWO
+  cat -n $TMPTWO >> $TMPTHREE
+
+  # additional reporting processes
   if [[ $REP = 'true' ]] ;then
-    echo "Processing \`sed\` values for reporting..."
-    for line in `echo "$SEDVALS"` ;do
-      echo "Processing: $line..."
-      sed -i "$line" $DISOUT ;done ;fi
-}
 
-# sort by column number
-########################################
-f_sort () {
-  f_precheck ;f_reformat
-  awk -v columnone=$1 -v columntwo=$2 -v columnthree=$3 '{print $columnone, $columntwo, $columnthree, $0}' $DISOUT |sort -n > $TMPONE
-  awk '{$1=$2=$3="" ;print $0}' $TMPONE |cat -n |column -t > $DISOUT
-}
+    # additional reporting process: remove unnecessary columns
+    mv $TMPTHREE $TMPONE
+    awk '{$3=$10="" ;print $0}' $TMPONE > $TMPTHREE
 
-# extra report processing
-########################################
-f_report () {
+    # create report file
+    column -t $TMPTHREE > $DISOUT
+    cp -af $DISOUT $REPFILE ;echo "Report File: $REPFILE"
+  else
 
-# check reference file
-if [[ ! -f $REFERENCE ]] ;then f_err "File does not exist: $REFERENCE" ;fi
+    # clean up output
+    column -t $TMPTHREE > $DISOUT ;fi
 
-# remove unnecessary content
-awk '{$3=$6="" ;print $0}' $DISOUT > $TMPONE
-
-# remove production runIDs
-cat $TMPONE |column -t > $DISOUT
+  # view output
+  less $DISOUT
 }
 
 # script start
@@ -190,35 +188,29 @@ done
 
 # check dispatcher file
 if [[ ! -f $DISRAW ]] ;then f_err "File does not exist: $DISRAW" ;fi
+if [[ -z $DISRAW ]] ;then f_err "File is empty: $DISRAW" ;fi
+
+# check reference file
+if [[ ! -f $SEDFILE ]] ;then f_err "File does not exist: $SEDFILE" ;fi
+if [[ -z $SEDFILE ]] ;then f_err "File is empty: $SEDFILE" ;fi
 
 # process flags
 ########################################
-source $REFERENCE
-
-if [[ $TIER == 'true' ]] ;then
-  f_sort 1 2 3 ;less $DISOUT
-elif [[ $EXEC == 'true' ]] ;then
-  f_sort 2 1 3 ;less $DISOUT
-elif [[ $CPU == 'true' ]] ;then
-  f_sort 11 13 3 ;less $DISOUT
-elif [[ $MEM == 'true' ]] ;then
-  f_sort 13 11 3 ;less $DISOUT
-elif [[ $USER == 'true' ]] ;then
-  f_sort 3 4 2 ;less $DISOUT
-elif [[ $PROJ == 'true' ]] ;then
-  f_sort 4 3 2 ;less $DISOUT
-elif [[ $DATE == 'true' ]] ;then
-  f_sort 6 7 8 ;less $DISOUT
-elif [[ $REP == 'true' ]] ;then
-  f_sort 1 3 4 ;f_report ;less $DISOUT
-fi
+if [[ $TIER == 'true' ]] ;then f_sort 1 2 3
+elif [[ $EXEC == 'true' ]] ;then f_sort 2 3 4
+elif [[ $CPU == 'true' ]] ;then f_sort 7 8 3
+elif [[ $MEM == 'true' ]] ;then f_sort 8 7 3
+elif [[ $USER == 'true' ]] ;then f_sort 3 4 2
+elif [[ $PROJ == 'true' ]] ;then f_sort 4 3 2
+elif [[ $DATE == 'true' ]] ;then f_sort 5 6 3
+elif [[ $REP == 'true' ]] ;then f_sort 1 3 4 ;fi
 
 # filter options
 ########################################
 
 # cleanup
 ########################################
-rm -f $TMPONE $TMPTWO $TMPTHREE
+rm -f $TMPONE $TMPTWO $TMPTHREE $TMPFOUR
 if [[ $KEEP == 'true' ]] ;then
   echo "Output File = $DISOUT"
 else
